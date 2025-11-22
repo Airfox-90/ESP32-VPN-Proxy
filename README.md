@@ -251,13 +251,23 @@ TDisplayWGProject/
 
 This project is provided as-is for personal use.
 
-## Support
+## Support & Sponsoring
+
+### Getting Help
 
 For issues, questions, or suggestions:
 1. Check the Serial Monitor output for error messages
 2. Review the troubleshooting section above
 3. Verify hardware connections and power supply
 4. Try a full reset by erasing Flash and re-uploading
+
+### Support This Project
+
+If you find this project useful, consider supporting its development:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow?style=flat-square)](https://buymeacoffee.com/airfox90)
+
+[Buy Me A Coffee - airfox90](https://buymeacoffee.com/airfox90)
 
 ## Version History
 
