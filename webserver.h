@@ -11,6 +11,8 @@ struct SessionToken {
 
 extern SessionToken activeSession;
 extern AsyncWebServer server;
+extern float currentTemperature;
+extern float currentHumidity;
 
 void setupWebServer();
 

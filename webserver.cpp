@@ -5,6 +5,7 @@
 #include "config.h"
 #include "WGProject.h"
 #include "forwarder.h"
+#include "mqtt_client.h"
 
 AsyncWebServer server(80);
 SessionToken activeSession;
@@ -66,6 +67,8 @@ void handleRoot(AsyncWebServerRequest *request) {
   String html = String(PAGE_INDEX);
   html = strReplace(html, "%SSID%", cfg.wifi_ssid);
   html = strReplace(html, "%PASS%", cfg.wifi_pass);
+  html = strReplace(html, "%SSID2%", cfg.wifi_ssid_secondary);
+  html = strReplace(html, "%PASS2%", cfg.wifi_pass_secondary);
   html = strReplace(html, "%WG_LOCAL%", cfg.wg_local_ip);
   html = strReplace(html, "%WG_DNS%", cfg.wg_dns_ip);
   html = strReplace(html, "%WG_PRIV%", cfg.wg_private_key);
@@ -76,6 +79,12 @@ void handleRoot(AsyncWebServerRequest *request) {
   html = strReplace(html, "%FWD_LPORT%", String(cfg.forward_local_port).c_str());
   html = strReplace(html, "%FWD_RHOST%", cfg.forward_remote_host);
   html = strReplace(html, "%FWD_RPORT%", String(cfg.forward_remote_port).c_str());
+  html = strReplace(html, "%MQTT_SERVER%", cfg.mqtt_server);
+  html = strReplace(html, "%MQTT_PORT%", String(cfg.mqtt_port).c_str());
+  html = strReplace(html, "%MQTT_USER%", cfg.mqtt_username);
+  html = strReplace(html, "%MQTT_PASS%", cfg.mqtt_password);
+  html = strReplace(html, "%MQTT_PREFIX%", cfg.mqtt_topic_prefix);
+  html = strReplace(html, "%MQTT_TOGGLE%", cfg.mqtt_enabled ? "MQTT aus" : "MQTT an");
   html = strReplace(html, "%SETTINGS_PWD%", cfg.web_password);
   html = strReplace(html, "%LOGOUT_BTN%", strlen(cfg.web_password) > 0 ? "<a href=\"/logout\" style=\"display: inline-block; margin-top: 10px; padding: 10px 20px; background: #999; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;\">Logout</a>" : "");
   
@@ -121,10 +130,16 @@ void handleSaveWifi(AsyncWebServerRequest *request) {
   if (request->hasParam("ssid", true)) {
     request->getParam("ssid", true)->value().toCharArray(cfg.wifi_ssid, sizeof(cfg.wifi_ssid));
     request->getParam("pass", true)->value().toCharArray(cfg.wifi_pass, sizeof(cfg.wifi_pass));
+    
+    // Save secondary WiFi if provided
+    if (request->hasParam("ssid2", true)) {
+      request->getParam("ssid2", true)->value().toCharArray(cfg.wifi_ssid_secondary, sizeof(cfg.wifi_ssid_secondary));
+      request->getParam("pass2", true)->value().toCharArray(cfg.wifi_pass_secondary, sizeof(cfg.wifi_pass_secondary));
+    }
+    
     saveConfig();
     request->redirect("/");
-    WiFi.softAPdisconnect(true);
-    WiFi.begin(cfg.wifi_ssid, cfg.wifi_pass);
+    startWiFi();
   } else {
     request->send(400, "text/plain", "missing ssid");
   }
@@ -187,7 +202,9 @@ void handleStatus(AsyncWebServerRequest *request) {
 
   String html = String(PAGE_STATUS);
   html = strReplace(html, "%LOCAL_IP%", WiFi.localIP().toString().c_str());
-  html = strReplace(html, "%DNS_IP%", WiFi.dnsIP().toString().c_str());
+  html = strReplace(html, "%WIFI_SSID%", WiFi.SSID().c_str());
+  html = strReplace(html, "%TEMPERATURE%", String(currentTemperature, 1).c_str());
+  html = strReplace(html, "%HUMIDITY%", String(currentHumidity, 1).c_str());
   WGStats s = wg_get_stats_wrapper();
   html = strReplace(html, "%WG_STATE%", s.online ? "Connected" : "Offline");
   html = strReplace(html, "%WG_RX%", String(bytesRecvSince).c_str());
@@ -225,6 +242,31 @@ void handleReboot(AsyncWebServerRequest *request) {
   ESP.restart();
 }
 
+void handleSaveMqtt(AsyncWebServerRequest *request) {
+  if (!protectedCheck(request)) return;
+
+  if (request->hasParam("mqtt_server", true)) request->getParam("mqtt_server", true)->value().toCharArray(cfg.mqtt_server, sizeof(cfg.mqtt_server));
+  if (request->hasParam("mqtt_port", true)) cfg.mqtt_port = request->getParam("mqtt_port", true)->value().toInt();
+  if (request->hasParam("mqtt_user", true)) request->getParam("mqtt_user", true)->value().toCharArray(cfg.mqtt_username, sizeof(cfg.mqtt_username));
+  if (request->hasParam("mqtt_pass", true)) request->getParam("mqtt_pass", true)->value().toCharArray(cfg.mqtt_password, sizeof(cfg.mqtt_password));
+  if (request->hasParam("mqtt_prefix", true)) request->getParam("mqtt_prefix", true)->value().toCharArray(cfg.mqtt_topic_prefix, sizeof(cfg.mqtt_topic_prefix));
+  
+  saveConfig();
+  request->redirect("/");
+}
+
+void handleMqttToggle(AsyncWebServerRequest *request) {
+  if (!protectedCheck(request)) return;
+
+  cfg.mqtt_enabled = !cfg.mqtt_enabled;
+  saveConfig();
+  
+  // Re-initialize MQTT client with new settings
+  mqtt_init();
+  
+  request->redirect("/");
+}
+
 
 void setupWebServer() {
   server.on("/", HTTP_GET, handleRoot);
@@ -235,6 +277,8 @@ void setupWebServer() {
   server.on("/save_wg", HTTP_POST, handleSaveWG);
   server.on("/wg_toggle", HTTP_POST, handleWgToggle);
   server.on("/save_fwd", HTTP_POST, handleSaveFwd);
+  server.on("/save_mqtt", HTTP_POST, handleSaveMqtt);
+  server.on("/mqtt_toggle", HTTP_POST, handleMqttToggle);
   server.on("/save_settings", HTTP_POST, handleSaveSettings);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/reboot", HTTP_POST, handleReboot);

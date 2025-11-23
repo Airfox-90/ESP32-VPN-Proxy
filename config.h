@@ -8,6 +8,10 @@ struct Config {
   char wifi_ssid[64];
   char wifi_pass[64];
 
+  // Secondary WiFi (fallback)
+  char wifi_ssid_secondary[64];
+  char wifi_pass_secondary[64];
+
   // WireGuard
   char wg_local_ip[32];
   char wg_dns_ip[32];
@@ -24,6 +28,14 @@ struct Config {
   
   // Web UI Password
   char web_password[64];
+
+  // MQTT Configuration
+  bool mqtt_enabled;
+  char mqtt_server[64];
+  uint16_t mqtt_port;
+  char mqtt_username[64];
+  char mqtt_password[64];
+  char mqtt_topic_prefix[128];
 };
 
 extern Config cfg;

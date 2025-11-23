@@ -300,12 +300,20 @@ const char* PAGE_INDEX = R"HTML(
         <h3>WLAN Configuration</h3>
         <form method="POST" action="/save_wifi">
           <div class="form-group">
-            <label for="ssid">Network Name (SSID)</label>
-            <input type="text" id="ssid" name="ssid" value="%SSID%" placeholder="Enter WiFi network name">
+            <label for="ssid">Primary Network Name (SSID)</label>
+            <input type="text" id="ssid" name="ssid" value="%SSID%" placeholder="Enter primary WiFi network name">
           </div>
           <div class="form-group">
-            <label for="pass">Password</label>
-            <input type="password" id="pass" name="pass" value="%PASS%" placeholder="Enter WiFi password">
+            <label for="pass">Primary Password</label>
+            <input type="password" id="pass" name="pass" value="%PASS%" placeholder="Enter primary WiFi password">
+          </div>
+          <div class="form-group">
+            <label for="ssid2">Secondary Network Name (SSID) - Optional Fallback</label>
+            <input type="text" id="ssid2" name="ssid2" value="%SSID2%" placeholder="Enter secondary WiFi network name (optional)">
+          </div>
+          <div class="form-group">
+            <label for="pass2">Secondary Password</label>
+            <input type="password" id="pass2" name="pass2" value="%PASS2%" placeholder="Enter secondary WiFi password (optional)">
           </div>
           <button type="submit" class="btn-primary">Connect & Save</button>
         </form>
@@ -363,6 +371,37 @@ const char* PAGE_INDEX = R"HTML(
             <input type="text" id="rport" name="rport" value="%FWD_RPORT%" placeholder="e.g., 80">
           </div>
           <button type="submit" class="btn-primary">Save Forwarding Rules</button>
+        </form>
+      </div>
+
+      <!-- MQTT & Sensor Section -->
+      <div class="section">
+        <h3>MQTT & Temperature/Humidity Sensor</h3>
+        <form method="POST" action="/save_mqtt">
+          <div class="form-group">
+            <label for="mqtt_server">MQTT Server IP Address</label>
+            <input type="text" id="mqtt_server" name="mqtt_server" value="%MQTT_SERVER%" placeholder="e.g., 192.168.1.100">
+          </div>
+          <div class="form-group">
+            <label for="mqtt_port">MQTT Port</label>
+            <input type="text" id="mqtt_port" name="mqtt_port" value="%MQTT_PORT%" placeholder="Default: 1883">
+          </div>
+          <div class="form-group">
+            <label for="mqtt_user">MQTT Username (Optional)</label>
+            <input type="text" id="mqtt_user" name="mqtt_user" value="%MQTT_USER%" placeholder="Leave empty if not required">
+          </div>
+          <div class="form-group">
+            <label for="mqtt_pass">MQTT Password (Optional)</label>
+            <input type="password" id="mqtt_pass" name="mqtt_pass" value="%MQTT_PASS%" placeholder="Leave empty if not required">
+          </div>
+          <div class="form-group">
+            <label for="mqtt_prefix">MQTT Topic Prefix</label>
+            <input type="text" id="mqtt_prefix" name="mqtt_prefix" value="%MQTT_PREFIX%" placeholder="e.g., esp32/sensor or home/livingroom">
+          </div>
+          <button type="submit" class="btn-primary">Save MQTT Configuration</button>
+        </form>
+        <form method="POST" action="/mqtt_toggle" style="margin-top: 15px;">
+          <button type="submit" class="btn-toggle">%MQTT_TOGGLE%</button>
         </form>
       </div>
 
@@ -501,8 +540,12 @@ const char* PAGE_STATUS = R"HTML(
         <div class="stat-value">%LOCAL_IP%</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">DNS IP</div>
-        <div class="stat-value">%DNS_IP%</div>
+        <div class="stat-label">WiFi Network</div>
+        <div class="stat-value" style="font-size: 18px;">%WIFI_SSID%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Temperature & Humidity</div>
+        <div class="stat-value">%TEMPERATURE%°C / %HUMIDITY%%</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">WireGuard Status</div>

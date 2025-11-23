@@ -6,15 +6,19 @@
 #include <LilyGo_AMOLED.h>
 #include <LV_Helper.h>
 #include <TFT_eSPI.h> 
+#include "DHT_Async.h"
 #include "lwip/dns.h"
 #include "WGProject.h"
 #include "webui.h"
 #include "config.h"
 #include "forwarder.h"
 #include "webserver.h"
+#include "mqtt_client.h"
 
 #define AP_SSID_PREFIX "WG-VPN-Proxy_"
 #define AP_PASSWORD    "configureme"
+
+#define DHT_SENSOR_TYPE DHT_TYPE_11
 
 // throughput counters
 uint64_t lastBytesSent = 0;
@@ -25,9 +29,14 @@ TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite framebuffers = TFT_eSprite(&tft);
 LilyGo_Class amoled;
 
+DHT_Async dht_sensor(46, DHT_SENSOR_TYPE);
+
 WireGuard wg;
 bool wg_ready = false;
 bool wg_running = false;
+
+float currentTemperature = 0.0;
+float currentHumidity = 0.0;
 
 bool wifiInitialized = false;
 bool wifiConnected = false;
@@ -195,23 +204,46 @@ void initializeDisplay() {
 }
 
 bool connectToWiFi() {
+  // Try primary WiFi settings
   if (strlen(cfg.wifi_ssid) > 0) {
+    Serial.printf("Attempting to connect to primary WiFi: %s\n", cfg.wifi_ssid);
     WiFi.begin(cfg.wifi_ssid, cfg.wifi_pass);
     unsigned long start = millis();
     
     while (millis() - start < 10000) {
-      if (WiFi.status() == WL_CONNECTED) break;
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("Connected to primary WiFi");
+        WiFi.softAPdisconnect(true);
+        return true;
+      }
       delay(200);
     }
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("WiFi connected. Shutting down AP");
-      WiFi.softAPdisconnect(true);
-      return true;
-    }
+    Serial.println("Primary WiFi connection failed");
   }
+  
+  // Try secondary WiFi settings as fallback
+  if (strlen(cfg.wifi_ssid_secondary) > 0) {
+    Serial.printf("Attempting to connect to secondary WiFi: %s\n", cfg.wifi_ssid_secondary);
+    // Disconnect from primary WiFi before connecting to secondary
+    WiFi.disconnect(true);  // true = turn off WiFi radio
+    delay(500);  // Wait for disconnect to complete
+    WiFi.begin(cfg.wifi_ssid_secondary, cfg.wifi_pass_secondary);
+    unsigned long start = millis();
+    
+    while (millis() - start < 10000) {
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("Connected to secondary WiFi");
+        WiFi.softAPdisconnect(true);
+        return true;
+      }
+      delay(200);
+    }
+    Serial.println("Secondary WiFi connection failed");
+  }
+  
   WiFi.disconnect();
   Serial.println("Giving up on WiFi");
+  delay(500); 
   return false;
 }
 
@@ -283,6 +315,7 @@ void drawStatusOnDisplay() {
   
   // WiFi Signal
   int32_t rssi = WiFi.RSSI();
+  String wifiSignal = String(rssi) + " dBm";
   int bars = 0;
   if (rssi >= -50) bars = 4;
   else if (rssi >= -60) bars = 3;
@@ -291,7 +324,7 @@ void drawStatusOnDisplay() {
   else bars = 0;
   
   uint16_t wifiColor = (bars >= 3) ? 0x07E0 : (bars >= 2) ? 0xFD20 : 0xF800;
-  int centerX = amoled.width() / 2;
+  int centerX = amoled.width() / 2 - 20;
   
   framebuffers.setTextColor(wifiColor, TFT_DARKGREEN);
   framebuffers.drawString("WiFi", centerX - 30, 12, 4);
@@ -304,6 +337,7 @@ void drawStatusOnDisplay() {
   }
   
   framebuffers.setTextColor(TFT_WHITE, TFT_DARKGREEN);
+  framebuffers.drawString(wifiSignal.c_str(), centerX + 70, 12, 4);
   framebuffers.drawString(timeStr.c_str(), amoled.width() - 105, 12, 4);
   
   // IP Card
@@ -314,13 +348,15 @@ void drawStatusOnDisplay() {
   framebuffers.setTextColor(TFT_WHITE, 0x2945);
   framebuffers.drawString(WiFi.localIP().toString().c_str(), 15, 77, 4);
   
-  // DNS Card
+  // Temperature & Humidity Card
   framebuffers.fillRect(8, 115, 250, 55, 0x2945);
   framebuffers.drawRect(8, 115, 250, 55, 0x667E);
   framebuffers.setTextColor(0xB5D6, 0x2945);
-  framebuffers.drawString("DNS Server", 15, 120, 2);
+  framebuffers.drawString("Temp & Humidity", 15, 120, 2);
   framebuffers.setTextColor(TFT_WHITE, 0x2945);
-  framebuffers.drawString(WiFi.dnsIP().toString().c_str(), 15, 140, 4);
+  char tempStr[32];
+  snprintf(tempStr, sizeof(tempStr), "%.1f deg. C  %.1f %%", currentTemperature, currentHumidity);
+  framebuffers.drawString(tempStr, 15, 140, 4);
 
   // Forwarder Card
   framebuffers.fillRect(8, 175, 250, 55, 0x2945);
@@ -376,6 +412,18 @@ void drawStatusOnDisplay() {
   amoled.pushColors(0, 0, amoled.width(), amoled.height(), (uint16_t *)framebuffers.getPointer());
 }
 
+void startWiFi() {
+  WiFi.disconnect();
+  delay(500);
+  String apName = String(AP_SSID_PREFIX) + String((uint32_t)ESP.getEfuseMac(), HEX);
+  WiFi.softAP(apName.c_str(), AP_PASSWORD);
+  // Try to connect to WiFi
+  Serial.println("Try connect Wifi...");
+  bool connectedToWiFi = connectToWiFi();
+  wifiInitialized = true;
+  wifiConnected = connectedToWiFi;
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -383,23 +431,29 @@ void setup() {
   
   initializeDisplay();
   loadConfig();
+  showInitMessage();
+  startWiFi();
   
-  // Start AP
-  String apName = String(AP_SSID_PREFIX) + String((uint32_t)ESP.getEfuseMac(), HEX);
-  WiFi.softAP(apName.c_str(), AP_PASSWORD);
+  // Initialize MQTT client
+  mqtt_init();
   
   Serial.println("Setup WebServer");
   setupWebServer();
-  
-  // Try to connect to WiFi
-  Serial.println("Try connect Wifi...");
-  bool connectedToWiFi = connectToWiFi();
-  
-  showInitMessage();
-  
-  wifiInitialized = true;
-  wifiConnected = connectedToWiFi;
 }
+
+static bool measure_environment(float *temperature, float *humidity) {
+    static unsigned long measurement_timestamp = millis();
+
+    /* Measure once every four seconds. */
+    if (millis() - measurement_timestamp > 4000ul) {
+        if (dht_sensor.measure(temperature, humidity)) {
+            measurement_timestamp = millis();
+            return (true);
+        }
+    }
+    return (false);
+}
+
 
 void loop() {
   unsigned long now = millis();
@@ -438,6 +492,21 @@ void loop() {
   }
   
   lastWiFiState = currentWiFiState;
+  
+  float humidity;
+  float temperature;
+  if (measure_environment(&temperature, &humidity)) {
+    if (!isnan(humidity) && !isnan(temperature)) {
+      currentTemperature = temperature;
+      currentHumidity = humidity;
+      
+      // Publish to MQTT if connected
+      mqtt_publish_sensor_data(temperature, humidity);
+    }
+  }
+    
+  // Handle MQTT
+  mqtt_loop();
   
   // Calculate throughput
   static unsigned long lastThroughputCalc = 0;

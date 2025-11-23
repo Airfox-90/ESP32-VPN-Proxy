@@ -15,5 +15,6 @@ void restoreDefaultDns();
 void setVpnDnsFromConfig();
 bool wg_up_wrapper();
 bool wg_applyConfig_validate(const char* local_ip_c, const char* privateKey, const char* peerPublicKey, const char* endpoint, const char* allowedIps);
+void startWiFi();
 
 #endif
